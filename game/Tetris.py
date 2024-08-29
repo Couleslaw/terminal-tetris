@@ -54,8 +54,11 @@ class GameTetris:
     MOVE_DOWN = 3
     ROTATE = 4
     EXIT = 5
+    DROP_DOWN = 6
 
-    def __init__(self, term: terminal.Term):
+    def __init__(self, term: terminal.Term, random_colors: bool = False):
+
+        self._random_colors = random_colors
 
         self._context = term
         self._context.setup(
@@ -87,6 +90,17 @@ class GameTetris:
         elif code == keyboard.Key.esc:
             self._keys.put(self.EXIT)
             self._running = False
+        elif code == keyboard.Key.space:
+            self._keys.put(self.DROP_DOWN)
+
+    def _set_next_piece(self):
+        next_piece = random.randint(0, len(self.PIECES) - 1)
+        self._next_piece = self.PIECES[next_piece]
+
+        if self._random_colors:
+            self._next_color = self._random_color()
+        else:
+            self._next_color = colors.FG_PIECE_COLORS[next_piece]
 
     def _prepare_board(self):
         """
@@ -98,8 +112,7 @@ class GameTetris:
 
         self._falling_speed = self.START_FALLING_SPEED
 
-        self._next_color = self._random_color()
-        self._next_piece = random.choice(self.PIECES)
+        self._set_next_piece()
 
         self._current_piece_pos: list[int] = [0, 0]
         self._shadow_pos_y: int = 0
@@ -160,9 +173,7 @@ class GameTetris:
         self._lines: int = 0
         self._level: int = 0
 
-        self._context.write_str_at(
-            offset, scope_start_y, "┏" + "━" * line_width + "┓\n"
-        )
+        self._context.write_str_at(offset, scope_start_y, "┏" + "━" * line_width + "┓\n")
         self._context.write_str_at(
             offset, scope_start_y + 1, f"┃ Score: {self._score:07d} ┃\n"
         )
@@ -172,9 +183,7 @@ class GameTetris:
         self._context.write_str_at(
             offset, scope_start_y + 3, f"┃ Level: {self._level:07d} ┃\n"
         )
-        self._context.write_str_at(
-            offset, scope_start_y + 4, "┗" + "━" * line_width + "┛\n"
-        )
+        self._context.write_str_at(offset, scope_start_y + 4, "┗" + "━" * line_width + "┛\n")
 
         self._context.print_screen()
 
@@ -198,6 +207,8 @@ class GameTetris:
         start = time()
         delta = 0
 
+        drop_down = False
+
         while self._running:
             delta = time() - start
 
@@ -210,7 +221,12 @@ class GameTetris:
                 if key == self.ROTATE:
                     self._rotate()
                 else:
-                    self._move(key)
+                    if not drop_down:
+                        self._move(key)
+
+                    if key == self.DROP_DOWN:
+                        drop_down = True
+                        delta = self._falling_speed
             except:
                 pass
 
@@ -221,6 +237,7 @@ class GameTetris:
                 # reset delta time
                 start = time()
                 delta = 0
+                drop_down = False
 
                 if not self._move(self.MOVE_DOWN):
                     self._place_block()
@@ -229,9 +246,7 @@ class GameTetris:
                     self._shadow_pos_y = 0
 
                     # check whether the next piece has enough space to be drawn
-                    if self._check_overlapping(
-                        self._current_piece, self._current_piece_pos
-                    ):
+                    if self._check_overlapping(self._current_piece, self._current_piece_pos):
                         self._running = False
                         break
 
@@ -242,11 +257,19 @@ class GameTetris:
                 self._clear_block([self._current_piece_pos[0], self._shadow_pos_y])
 
         self._listener.stop()
+
+        # clear screen and move cursor home
+        print("\033[2J\033[H", end="")
         self._context.clear_styles()
+        # print game over message
+        print("Game over!")
+        print(f"Score: {self._score}")
+        print(f"Lines: {self._lines}")
+        print(f"Level: {self._level}")
 
     def _cast_shadow(self) -> bool:
         """
-        Try to cast the shadow. 
+        Try to cast the shadow.
         Returns wheather the shadow can be drawn
         """
 
@@ -293,8 +316,7 @@ class GameTetris:
                         self._next_piece_offset + 3 + x * 2 + offset_x, y + 2, "  "
                     )
 
-        self._next_piece = random.choice(self.PIECES)
-        self._next_color = self._random_color()
+        self._set_next_piece()
 
         height = len(self._next_piece)
         width = len(self._next_piece[0])
@@ -340,7 +362,7 @@ class GameTetris:
 
         # update the scoreboard
         removed_lines_count = len(remove_indexes)
-        
+
         self._lines += removed_lines_count
         self._level = self._lines // 10
         self._falling_speed = max(
@@ -396,9 +418,7 @@ class GameTetris:
         self._context.write_str_at(x * 2 + 1, y + 1, "  ")
 
     def _write_cell(self, x: int, y: int, color: int, char: str):
-        self._context.write_str_at(
-            x * 2 + 1, y + 1, char, [color, colors.COLOR_BG_DEFAULT]
-        )
+        self._context.write_str_at(x * 2 + 1, y + 1, char, [color, colors.COLOR_BG_DEFAULT])
 
     def _print_block(self, pos: list[int], char: str = "██"):
         """
@@ -445,8 +465,12 @@ class GameTetris:
             new_pos[1] += 1
         elif move == self.MOVE_LEFT:
             new_pos[0] -= 1
-        else:
+        elif move == self.MOVE_RIGHT:
             new_pos[0] += 1
+        elif move == self.DROP_DOWN:
+            while self._can_move(self._current_piece, new_pos):
+                new_pos[1] += 1
+            new_pos[1] -= 1
 
         if self._can_move(self._current_piece, new_pos):
             self._clear_block(self._current_piece_pos)
